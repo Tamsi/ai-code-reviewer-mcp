@@ -60,7 +60,8 @@ Register the server with your MCP client (Cursor / Claude Desktop). Example
         "LLM_PROVIDER": "vllm",
         "QWEN_BASE_URL": "https://your-aws-host:8000/v1",
         "QWEN_API_KEY": "...",
-        "LLM_MODEL": "Qwen/Qwen3.6-27B",
+        "LLM_MODEL": "cyankiwi/Qwen3.6-27B-AWQ-INT4",
+        "LLM_SERVED_NAME": "gpt-4o-mini",
         "GITHUB_TOKEN": "ghp_..."
       }
     }

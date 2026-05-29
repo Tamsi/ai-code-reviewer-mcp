@@ -210,7 +210,11 @@ def _extract_json(text: str) -> dict:
 def _llm() -> tuple[OpenAI, str]:
     base_url = os.environ.get("QWEN_BASE_URL", "http://localhost:8000/v1")
     api_key = os.environ.get("QWEN_API_KEY", "not-needed")
-    model = os.environ.get("LLM_MODEL", "Qwen/Qwen3.6-27B")
+    model = (
+        os.environ.get("LLM_SERVED_NAME")
+        or os.environ.get("LLM_MODEL")
+        or "Qwen/Qwen3.6-27B"
+    )
     return OpenAI(base_url=base_url, api_key=api_key), model
 
 
