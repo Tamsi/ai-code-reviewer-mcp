@@ -41,8 +41,11 @@ IGNORED_DIRS = {
 IGNORED_SUFFIXES = (".min.js", ".min.css", ".lock", ".map", ".d.ts", ".snap")
 
 MAX_FILE_BYTES = 200_000
-CONTEXT_CHAR_BUDGET = int(os.environ.get("CONTEXT_CHAR_BUDGET", "40000"))
-PER_FILE_CHAR_CAP = int(os.environ.get("PER_FILE_CHAR_CAP", "10000"))
+MAX_MODEL_LEN = int(os.environ.get("MAX_MODEL_LEN", "16384"))
+CONTEXT_CHAR_BUDGET = int(os.environ.get("CONTEXT_CHAR_BUDGET", "20000"))
+PER_FILE_CHAR_CAP = int(os.environ.get("PER_FILE_CHAR_CAP", "6000"))
+MAX_TREE_ENTRIES = int(os.environ.get("MAX_TREE_ENTRIES", "120"))
+PROMPT_SAFETY_TOKENS = int(os.environ.get("PROMPT_SAFETY_TOKENS", "512"))
 SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 SEVERITY_TAG = {
     "critical": "[CRITICAL]",
@@ -143,10 +146,42 @@ def _number_lines(content: str, cap: int) -> str:
     )
 
 
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate for Latin/code text (~4 chars per token)."""
+    return max(1, len(text) // 4)
+
+
+def _max_output_tokens() -> int:
+    return int(os.environ.get("LLM_MAX_TOKENS", "1024"))
+
+
+def _context_char_budget_for_prompt(system: str) -> int:
+    """Chars available for the user context after system prompt and output reservation."""
+    reserved = (
+        _estimate_tokens(system)
+        + _max_output_tokens()
+        + PROMPT_SAFETY_TOKENS
+    )
+    input_token_budget = max(1024, MAX_MODEL_LEN - reserved)
+    return input_token_budget * 4
+
+
+def _truncate_to_chars(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "\n\n... [context truncated to fit the model window] ..."
+
+
 def build_context(repo: GitHubRepo) -> tuple[str, list[str]]:
     files = repo.list_files()
     sections = [f"# Code under review: {repo.describe()}"]
-    tree = "\n".join(f"- {p}" for p, _ in files) or "(no reviewable source files found)"
+
+    if len(files) > MAX_TREE_ENTRIES:
+        shown = files[:MAX_TREE_ENTRIES]
+        tree = "\n".join(f"- {p}" for p, _ in shown)
+        tree += f"\n- ... and {len(files) - MAX_TREE_ENTRIES} more file(s)"
+    else:
+        tree = "\n".join(f"- {p}" for p, _ in files) or "(no reviewable source files found)"
     sections.append(f"\n## File tree ({len(files)} reviewable files)\n{tree}")
 
     included: list[str] = []
@@ -241,6 +276,8 @@ def check_llm_health() -> None:
 def run_analysis(repo: GitHubRepo, analysis_type: str, context: str) -> dict:
     client, model = _llm()
     system = f"{system_prompt()}\n\n---\n\n{analysis_prompt(analysis_type)}"
+    max_output = _max_output_tokens()
+    context = _truncate_to_chars(context, _context_char_budget_for_prompt(system))
     completion = client.chat.completions.create(
         model=model,
         messages=[
@@ -248,7 +285,7 @@ def run_analysis(repo: GitHubRepo, analysis_type: str, context: str) -> dict:
             {"role": "user", "content": context},
         ],
         temperature=float(os.environ.get("LLM_TEMPERATURE", "0.2")),
-        max_tokens=int(os.environ.get("LLM_MAX_TOKENS", "4096")),
+        max_tokens=max_output,
         response_format={"type": "json_object"},
     )
     raw = completion.choices[0].message.content or ""
