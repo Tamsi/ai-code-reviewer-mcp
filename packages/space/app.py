@@ -27,6 +27,8 @@ DEFAULT = ["review", "bugs"]
 
 
 def review(target: str, analyses: list[str]) -> Iterator[str]:
+    yield "_Starting review..._"
+
     target = (target or "").strip()
     if not target:
         yield "Please enter a GitHub repository (e.g. `owner/repo` or a repo URL)."
@@ -36,6 +38,7 @@ def review(target: str, analyses: list[str]) -> Iterator[str]:
         return
 
     try:
+        yield "_Checking Qwen endpoint..._"
         check_llm_health()
         ref = parse_target(target)
         repo = GitHubRepo(ref, token=GITHUB_TOKEN)
@@ -83,8 +86,21 @@ with gr.Blocks(title="AI Code Reviewer", theme=gr.themes.Soft()) as demo:
         inputs=[target, analyses],
     )
 
-    run_btn.click(fn=review, inputs=[target, analyses], outputs=output)
-    target.submit(fn=review, inputs=[target, analyses], outputs=output)
+    run_btn.click(
+        fn=review,
+        inputs=[target, analyses],
+        outputs=output,
+        show_progress="full",
+    )
+    target.submit(
+        fn=review,
+        inputs=[target, analyses],
+        outputs=output,
+        show_progress="full",
+    )
+
+# Required for generator/streaming handlers on HuggingFace Spaces and locally.
+demo.queue(max_size=8)
 
 
 if __name__ == "__main__":
