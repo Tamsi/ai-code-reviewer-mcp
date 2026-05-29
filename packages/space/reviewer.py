@@ -152,7 +152,11 @@ def _estimate_tokens(text: str) -> int:
 
 
 def _max_output_tokens() -> int:
-    return int(os.environ.get("LLM_MAX_TOKENS", "1024"))
+    return int(os.environ.get("LLM_MAX_TOKENS", "2048"))
+
+
+def _max_findings() -> int:
+    return int(os.environ.get("MAX_FINDINGS", "5"))
 
 
 def _context_char_budget_for_prompt(system: str) -> int:
@@ -214,7 +218,8 @@ def _extract_json(text: str) -> dict:
     source = fenced.group(1) if fenced else text
     start = source.find("{")
     if start == -1:
-        return {"summary": text.strip()[:2000], "findings": []}
+        return {"summary": text.strip()[:2000], "findings": [], "_parse_error": True}
+
     depth = 0
     in_str = False
     escaped = False
@@ -239,7 +244,59 @@ def _extract_json(text: str) -> dict:
                     return json.loads(source[start : i + 1])
                 except json.JSONDecodeError:
                     break
-    return {"summary": text.strip()[:2000], "findings": []}
+
+    return _salvage_json(source[start:])
+
+
+def _salvage_json(partial: str) -> dict:
+    """Best-effort recovery when the model returns truncated JSON."""
+    summary_match = re.search(
+        r'"summary"\s*:\s*"((?:[^"\\]|\\.)*)',
+        partial,
+        re.DOTALL,
+    )
+    summary = ""
+    if summary_match:
+        summary = (
+            summary_match.group(1)
+            .replace("\\n", "\n")
+            .replace('\\"', '"')
+            .replace("\\\\", "\\")
+            .strip()
+        )
+
+    findings: list[dict] = []
+    for block in re.finditer(
+        r'\{\s*"severity"\s*:\s*"([^"]+)"[\s\S]*?"title"\s*:\s*"([^"]+)"',
+        partial,
+    ):
+        findings.append(
+            {
+                "severity": block.group(1),
+                "category": "general",
+                "file": None,
+                "line": None,
+                "title": block.group(2),
+                "explanation": "Recovered from a truncated model response.",
+                "suggestion": "",
+            }
+        )
+
+    if summary or findings:
+        return {
+            "summary": summary or "The model response was truncated before completion.",
+            "findings": findings,
+            "_truncated": True,
+        }
+
+    cleaned = partial.strip()
+    if cleaned.startswith("{"):
+        return {
+            "summary": "The model response was truncated and could not be parsed as JSON.",
+            "findings": [],
+            "_truncated": True,
+        }
+    return {"summary": cleaned[:2000], "findings": [], "_parse_error": True}
 
 
 def _llm() -> tuple[OpenAI, str]:
@@ -275,7 +332,10 @@ def check_llm_health() -> None:
 
 def run_analysis(repo: GitHubRepo, analysis_type: str, context: str) -> dict:
     client, model = _llm()
-    system = f"{system_prompt()}\n\n---\n\n{analysis_prompt(analysis_type)}"
+    system = (
+        f"{system_prompt()}\n\n---\n\n{analysis_prompt(analysis_type)}\n\n"
+        f"Keep the response compact: at most {_max_findings()} findings."
+    )
     max_output = _max_output_tokens()
     context = _truncate_to_chars(context, _context_char_budget_for_prompt(system))
     completion = client.chat.completions.create(
@@ -288,8 +348,16 @@ def run_analysis(repo: GitHubRepo, analysis_type: str, context: str) -> dict:
         max_tokens=max_output,
         response_format={"type": "json_object"},
     )
-    raw = completion.choices[0].message.content or ""
+    choice = completion.choices[0]
+    raw = choice.message.content or ""
     parsed = _extract_json(raw)
+    truncated = choice.finish_reason == "length" or parsed.pop("_truncated", False)
+    parsed.pop("_parse_error", None)
+    if truncated and parsed.get("summary"):
+        parsed["summary"] = (
+            parsed["summary"].rstrip()
+            + " _(Response truncated by token limit — retry with fewer analyses or a smaller repo.)_"
+        )
     return {
         "summary": parsed.get("summary", ""),
         "findings": parsed.get("findings", []) or [],
