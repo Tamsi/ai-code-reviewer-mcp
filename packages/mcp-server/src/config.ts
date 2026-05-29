@@ -67,7 +67,7 @@ export function loadConfig(): AppConfig {
         process.env.LLM_MODEL?.trim() ||
         "Qwen/Qwen3.6-27B",
       temperature: readNumber(process.env.LLM_TEMPERATURE, 0.2),
-      maxTokens: readNumber(process.env.LLM_MAX_TOKENS, 4096),
+      maxTokens: readNumber(process.env.LLM_MAX_TOKENS, 2048),
     },
     github: {
       token: process.env.GITHUB_TOKEN?.trim() || undefined,

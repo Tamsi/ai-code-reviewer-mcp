@@ -3,6 +3,7 @@ import type { LlmClient } from "../llm/client.js";
 import { logger } from "../logger.js";
 import { analysisPrompt, systemPrompt } from "../prompts/index.js";
 import { buildContext, type BuiltContext } from "./context.js";
+import { envInt, truncateToChars, userCharBudget } from "./token-budget.js";
 import {
   ANALYSIS_LABELS,
   AnalysisOutputSchema,
@@ -44,12 +45,14 @@ export class AnalysisEngine {
     type: AnalysisType,
     context: BuiltContext,
   ): Promise<AnalysisResult> {
-    const system = `${systemPrompt()}\n\n---\n\n${analysisPrompt(type)}`;
+    const maxFindings = envInt("MAX_FINDINGS", 8);
+    const system = `${systemPrompt()}\n\n---\n\n${analysisPrompt(type)}\n\nKeep the response compact: at most ${maxFindings} findings.`;
+    const user = truncateToChars(context.userMessage, userCharBudget(system));
 
     logger.info(`running ${ANALYSIS_LABELS[type]} analysis on ${source.describe()}`);
     const { content, toolRounds } = await this.llm.chat({
       system,
-      user: context.userMessage,
+      user,
       tools: context.tools,
       json: true,
     });

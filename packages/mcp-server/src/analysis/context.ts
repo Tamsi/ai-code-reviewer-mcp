@@ -1,22 +1,15 @@
 import type { CodeSource, FileEntry } from "../github/types.js";
 import type { LlmTool } from "../llm/types.js";
-
-function envInt(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
-}
+import { envInt } from "./token-budget.js";
 
 /**
  * Context budgets, tunable via env to match the served model's context window.
- * Defaults suit a large window (~32k+ tokens). For small windows (e.g. an
- * AWQ-quantized 27B on a 24GB GPU capped at ~16k tokens), lower these, e.g.
- * CONTEXT_CHAR_BUDGET=40000, PER_FILE_CHAR_CAP=10000, READ_FILE_CHAR_CAP=12000.
+ * Defaults target a 16k-token vLLM deployment (AWQ 27B on a 24GB GPU).
  */
-const CONTEXT_CHAR_BUDGET = envInt("CONTEXT_CHAR_BUDGET", 120_000);
-const PER_FILE_CHAR_CAP = envInt("PER_FILE_CHAR_CAP", 16_000);
-const READ_FILE_CHAR_CAP = envInt("READ_FILE_CHAR_CAP", 24_000);
+const CONTEXT_CHAR_BUDGET = envInt("CONTEXT_CHAR_BUDGET", 18_000);
+const PER_FILE_CHAR_CAP = envInt("PER_FILE_CHAR_CAP", 6000);
+const READ_FILE_CHAR_CAP = envInt("READ_FILE_CHAR_CAP", 8000);
+const MAX_TREE_ENTRIES = envInt("MAX_TREE_ENTRIES", 120);
 
 export interface BuiltContext {
   userMessage: string;
@@ -33,7 +26,12 @@ function numberLines(content: string, cap: number): string {
 }
 
 function renderTree(files: FileEntry[]): string {
-  return files.map((f) => `- ${f.path}`).join("\n");
+  if (files.length === 0) return "(no reviewable source files found)";
+  if (files.length <= MAX_TREE_ENTRIES) {
+    return files.map((f) => `- ${f.path}`).join("\n");
+  }
+  const shown = files.slice(0, MAX_TREE_ENTRIES).map((f) => `- ${f.path}`).join("\n");
+  return `${shown}\n- ... and ${files.length - MAX_TREE_ENTRIES} more file(s)`;
 }
 
 /**
@@ -53,7 +51,7 @@ export async function buildContext(
   const sections: string[] = [];
   sections.push(`# Code under review: ${source.describe()}`);
   sections.push(
-    `\n## File tree (${files.length} reviewable files)\n${renderTree(files) || "(no reviewable source files found)"}`,
+    `\n## File tree (${files.length} reviewable files)\n${renderTree(files)}`,
   );
 
   // Pull request diff first: it focuses the model on what changed.
