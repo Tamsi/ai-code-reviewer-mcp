@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# EC2 user-data: serve Qwen3.6-27B with vLLM (OpenAI-compatible) on port 8000.
+#
+# This template is rendered by deploy.sh, which substitutes the __PLACEHOLDER__
+# values below. It assumes a Deep Learning AMI with the NVIDIA driver, Docker, and
+# the NVIDIA container runtime already installed.
+set -euo pipefail
+
+MODEL_ID="__MODEL_ID__"
+SERVED_MODEL_NAME="__SERVED_MODEL_NAME__"
+API_KEY="__API_KEY__"
+MAX_MODEL_LEN="__MAX_MODEL_LEN__"
+HF_TOKEN="__HF_TOKEN__"
+QUANTIZATION="__QUANTIZATION__"
+
+mkdir -p /opt/vllm/hf-cache
+# Note: do not pass --quantization for AWQ/compressed-tensors checkpoints; vLLM
+# reads the method from the model config automatically.
+
+cat >/opt/vllm/start.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+exec docker run --rm --name vllm \
+  --gpus all \
+  -p 8000:8000 \
+  --ipc=host \
+  -e HF_TOKEN="__HF_TOKEN__" \
+  -v /opt/vllm/hf-cache:/root/.cache/huggingface \
+  vllm/vllm-openai:latest \
+    --model __MODEL_ID__ \
+    --served-model-name __SERVED_MODEL_NAME__ \
+    --port 8000 \
+    --api-key __API_KEY__ \
+    --language-model-only \
+    --max-model-len __MAX_MODEL_LEN__ \
+    --kv-cache-dtype fp8 \
+    --gpu-memory-utilization 0.95 \
+    --reasoning-parser qwen3 \
+    --enable-auto-tool-choice \
+    --tool-call-parser qwen3_coder \
+    --trust-remote-code \
+    --enforce-eager
+SCRIPT
+
+chmod +x /opt/vllm/start.sh
+
+docker pull vllm/vllm-openai:latest
+
+cat >/etc/systemd/system/vllm.service <<'UNIT'
+[Unit]
+Description=vLLM OpenAI-compatible server (Qwen3.6-27B)
+After=docker.service
+Requires=docker.service
+
+[Service]
+TimeoutStartSec=0
+Restart=always
+ExecStartPre=-/usr/bin/docker rm -f vllm
+ExecStart=/opt/vllm/start.sh
+ExecStop=/usr/bin/docker stop vllm
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now vllm.service

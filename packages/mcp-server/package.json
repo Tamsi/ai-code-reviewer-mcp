@@ -1,0 +1,33 @@
+{
+  "name": "@ai-code-reviewer/mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server exposing AI code review tools backed by a Qwen LLM.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "ai-code-reviewer-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "src/prompts"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-prompts.mjs",
+    "dev": "node --import tsx --watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@octokit/rest": "^21.0.2",
+    "openai": "^4.77.0",
+    "simple-git": "^3.27.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

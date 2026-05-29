@@ -1,0 +1,20 @@
+{
+  "name": "ai-code-reviewer-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server that reviews a GitHub repository (code review, bug detection, tech debt, security, performance, missing tests) powered by a local/remote Qwen LLM.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "workspaces": [
+    "packages/mcp-server"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace packages/mcp-server",
+    "dev": "npm run dev --workspace packages/mcp-server",
+    "start": "npm run start --workspace packages/mcp-server",
+    "typecheck": "npm run typecheck --workspace packages/mcp-server"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
