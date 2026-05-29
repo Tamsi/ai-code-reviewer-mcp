@@ -41,8 +41,8 @@ IGNORED_DIRS = {
 IGNORED_SUFFIXES = (".min.js", ".min.css", ".lock", ".map", ".d.ts", ".snap")
 
 MAX_FILE_BYTES = 200_000
-CONTEXT_CHAR_BUDGET = 90_000
-PER_FILE_CHAR_CAP = 14_000
+CONTEXT_CHAR_BUDGET = int(os.environ.get("CONTEXT_CHAR_BUDGET", "40000"))
+PER_FILE_CHAR_CAP = int(os.environ.get("PER_FILE_CHAR_CAP", "10000"))
 SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 SEVERITY_TAG = {
     "critical": "[CRITICAL]",
@@ -215,7 +215,27 @@ def _llm() -> tuple[OpenAI, str]:
         or os.environ.get("LLM_MODEL")
         or "Qwen/Qwen3.6-27B"
     )
-    return OpenAI(base_url=base_url, api_key=api_key), model
+    timeout = float(os.environ.get("LLM_TIMEOUT", "600"))
+    return OpenAI(base_url=base_url, api_key=api_key, timeout=timeout), model
+
+
+def check_llm_health() -> None:
+    """Fail fast with a clear error if the vLLM endpoint is unreachable."""
+    base_url = os.environ.get("QWEN_BASE_URL", "http://localhost:8000/v1").rstrip("/")
+    api_key = os.environ.get("QWEN_API_KEY", "not-needed")
+    try:
+        r = requests.get(
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+        r.raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"Cannot reach the Qwen endpoint at {base_url}. "
+            "Ensure the vLLM server is running and port 8000 is reachable from HuggingFace. "
+            f"({exc})"
+        ) from exc
 
 
 def run_analysis(repo: GitHubRepo, analysis_type: str, context: str) -> dict:

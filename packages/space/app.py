@@ -14,6 +14,7 @@ from reviewer import (
     ANALYSIS_LABELS,
     GitHubRepo,
     build_context,
+    check_llm_health,
     parse_target,
     render_result,
     run_analysis,
@@ -22,7 +23,7 @@ from reviewer import (
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 
 CHOICES = [(label, key) for key, label in ANALYSIS_LABELS.items()]
-DEFAULT = list(ANALYSIS_LABELS.keys())
+DEFAULT = ["review", "bugs"]
 
 
 def review(target: str, analyses: list[str]) -> Iterator[str]:
@@ -35,6 +36,7 @@ def review(target: str, analyses: list[str]) -> Iterator[str]:
         return
 
     try:
+        check_llm_health()
         ref = parse_target(target)
         repo = GitHubRepo(ref, token=GITHUB_TOKEN)
         yield f"Fetching `{repo.describe()}`..."
@@ -59,9 +61,9 @@ with gr.Blocks(title="AI Code Reviewer", theme=gr.themes.Soft()) as demo:
     gr.Markdown(
         """
         # AI Code Reviewer
-        Analyze any public GitHub repository with a local **Qwen3.6-27B** model:
+        Analyze any public GitHub repository with **Qwen3.6-27B** (self-hosted):
         code review, potential bugs, technical debt, security, performance and
-        missing tests.
+        missing tests. Each analysis takes ~30–90 s on the GPU server.
         """
     )
     with gr.Row():
